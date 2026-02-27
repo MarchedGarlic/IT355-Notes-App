@@ -1,10 +1,15 @@
 package org.example;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-public class Note {
+public class Note implements Serializable {
 
+    private final String ownerID;
     private final String id;
     private String title;
     
@@ -14,6 +19,8 @@ public class Note {
     
     /*OBJ08-J Do not expose internal state of objects 
     content is private and is mutable, so we encapsulate it properly */
+    /*SER05-J: Do not serialize instances of inner classes 
+    This inner class is not serialized, only the outer class is marked as serializable */
     class Content {
         private String content;
 
@@ -30,13 +37,18 @@ public class Note {
         }
     }
 
-    public Note(String title, String newContent) {
+    public Note(String ownerID, String title, String newContent) {
+        this.ownerID = ownerID;
         this.id = UUID.randomUUID().toString();
         this.title = title;
         Content c = new Content(newContent);
         this.theContent = c;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public String getOwnerID(){
+        return ownerID;
     }
 
     public String getId() {
@@ -77,6 +89,39 @@ public class Note {
         /*OBJ13-J return copies of objects to prevent external modification of internal state */
         LocalDateTime updatedAtCopy = LocalDateTime.of(updatedAt.toLocalDate(), updatedAt.toLocalTime());
         return updatedAtCopy;
+    }
+
+    /**
+     * SER01-J: Do not deviate from the proper signatures of serialization methods 
+     * The methods must match the correct signature
+     * @param stream
+     * @throws IOException
+     */
+    private void writeObject(ObjectOutputStream stream) throws IOException {
+        stream.defaultWriteObject();
+    }
+
+    /**
+     * SER01-J: Do not deviate from the proper signatures of serialization methods 
+     * The method must match the correct signature
+     * @param stream
+     * @throws IOException
+     * @throws ClassNotFoundException
+     */
+    private void readObject(ObjectInputStream stream) throws IOException, ClassNotFoundException {
+        stream.defaultReadObject();
+    }
+
+    /**
+     * SER04-J: Do not allow serialization and deserialization to bypass the security manager 
+     * This is used as a 'security manager' function to prevent deserialization by the wrong user.
+     * @param currentUserId
+     * @throws SecurityException
+     */
+    public void validateForUser(String currentUserId) throws SecurityException {
+        if (!ownerID.equals(currentUserId)) {
+            throw new SecurityException("Unauthorized note access");
+        }
     }
 
     @Override
