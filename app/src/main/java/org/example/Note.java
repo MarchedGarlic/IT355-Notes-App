@@ -4,26 +4,50 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 public class Note {
+
     private final String id;
     private String title;
-    private String content;
+    
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Content theContent; //needed this for rule
+    
+    /*OBJ08-J Do not expose internal state of objects 
+    content is private and is mutable, so we encapsulate it properly */
+    class Content {
+        private String content;
 
-    public Note(String title, String content) {
+        public Content(String content) {
+            this.content = content;
+        }
+
+        public String getContent() {
+            return content;
+        }
+
+        public void setContent(String content) {
+            this.content = content;
+        }
+    }
+
+    public Note(String title, String newContent) {
         this.id = UUID.randomUUID().toString();
         this.title = title;
-        this.content = content;
+        Content c = new Content(newContent);
+        this.theContent = c;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
 
     public String getId() {
+
         return id;
     }
 
     public String getTitle() {
-        return title;
+        //OBJ05-J return copies of mutable objects to prevent external modification of internal state
+        String copytitle = title; // Create a copy of the title to avoid exposing internal state
+        return copytitle;
     }
 
     public void setTitle(String title) {
@@ -32,11 +56,16 @@ public class Note {
     }
 
     public String getContent() {
-        return content;
+        /*OBJ08-J this ensures that the internal state of the Note class is not exposed to
+        external modification by returning a copy of the content
+        instead of the original reference
+        */
+        String contentCopy = theContent.getContent(); // Create a copy of the content to avoid exposing internal state
+        return contentCopy;
     }
 
     public void setContent(String content) {
-        this.content = content;
+        this.theContent.setContent(content);
         this.updatedAt = LocalDateTime.now();
     }
 
@@ -45,7 +74,9 @@ public class Note {
     }
 
     public LocalDateTime getUpdatedAt() {
-        return updatedAt;
+        /*OBJ13-J return copies of objects to prevent external modification of internal state */
+        LocalDateTime updatedAtCopy = LocalDateTime.of(updatedAt.toLocalDate(), updatedAt.toLocalTime());
+        return updatedAtCopy;
     }
 
     @Override
