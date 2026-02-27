@@ -88,7 +88,7 @@ public class App {
             }
             System.out.println("Enter the content of your new note:");
             String content = scanner.nextLine();
-            Note newNote = new Note(user.getId(), title, content);
+            Note newNote = new Note(title, content);
             user.addNote(newNote);
             System.out.println("Note created successfully!");
 
