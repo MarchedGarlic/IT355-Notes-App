@@ -21,10 +21,10 @@ public class User {
         if(username == null || password == null){
             throw new IllegalArgumentException("Username and password cannot be null");
         } else{
-        this.id = UUID.randomUUID().toString();
-        this.username = username;
-        this.password = password;
-        this.notes = new ArrayList<>();
+            this.id = UUID.randomUUID().toString();
+            this.username = username;
+            this.password = password;
+            this.notes = new ArrayList<>();
         }
     }
 
