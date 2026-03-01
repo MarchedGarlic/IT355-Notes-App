@@ -18,25 +18,12 @@ import org.example.Note;
 import org.example.User;
 
 public class UserSaver {
+    private static final String DB_ADAPTER = "jdbc:sqlite:data/sample.db";
+
     /**
      * This class is the exception if a user cant be saved
      */
     public static final class UserException extends IOException {
-    }
-
-    /**
-     * Obtains a SQL connection
-     * @return
-     * @throws SQLException
-     */
-    private static Connection getConnection() throws SQLException {
-        try {
-            Files.createDirectories(Paths.get("data"));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        return DriverManager.getConnection("jdbc:sqlite:data/sample.db");
     }
 
     /**
@@ -45,9 +32,9 @@ public class UserSaver {
      * @throws SQLException
      */
     private static void initTables() throws SQLException {
-        Connection conn = getConnection();
-        Statement stat = conn.createStatement();
-        stat.executeUpdate("CREATE TABLE IF NOT EXISTS users (id STRING PRIMARY KEY, username STRING NOT NULL UNIQUE, passwordHash STRING NOT NULL)");
+        try (Connection conn = DriverManager.getConnection(DB_ADAPTER); Statement stat = conn.createStatement()){
+            stat.executeUpdate("CREATE TABLE IF NOT EXISTS users (id STRING PRIMARY KEY, username STRING NOT NULL UNIQUE, passwordHash STRING NOT NULL)");
+        }
     }
 
     /**
@@ -70,12 +57,12 @@ public class UserSaver {
                 ON CONFLICT(id)
                 DO UPDATE SET username=excluded.username, passwordHash=excluded.passwordHash;
             """;
-            Connection conn = getConnection();
-            PreparedStatement pstmt = conn.prepareStatement(sql);
-            pstmt.setString(1, user.getId());
-            pstmt.setString(2, user.getUsername());
-            pstmt.setString(3, passwordHash);
-            pstmt.executeUpdate();
+            try (Connection conn = DriverManager.getConnection(DB_ADAPTER); PreparedStatement pstmt = conn.prepareStatement(sql)){
+                pstmt.setString(1, user.getId());
+                pstmt.setString(2, user.getUsername());
+                pstmt.setString(3, passwordHash);
+                pstmt.executeUpdate();
+            }
 
             // Prep the note vault
             Path vault = Paths.get("data", user.getId());
@@ -116,43 +103,44 @@ public class UserSaver {
 
             // Retrieve the user fields
             String sql = "SELECT * FROM users WHERE username=?;";
-            Connection conn = getConnection();
-            PreparedStatement pstmt = conn.prepareStatement(sql);
-            pstmt.setString(1, username);
 
-            ResultSet rs = pstmt.executeQuery();
+            try (Connection conn = DriverManager.getConnection(DB_ADAPTER); PreparedStatement pstmt = conn.prepareStatement(sql)){
+                pstmt.setString(1, username);
 
-            // Get results and instantiate new user object from it
-            if(!rs.next())
-                throw new UserException();
+                ResultSet rs = pstmt.executeQuery();
 
-            String userID = rs.getString("id");
-            String passwordHashFromDB = rs.getString("passwordHash");
+                // Get results and instantiate new user object from it
+                if(!rs.next())
+                    throw new UserException();
 
-            // Compare the password hash to their supplied password
-            String passwordHashFromArgs = new String(Encryption.generateKeyBytes(password));
+                String userID = rs.getString("id");
+                String passwordHashFromDB = rs.getString("passwordHash");
 
-            if(!passwordHashFromArgs.equals(passwordHashFromDB))
-                throw new SecurityException("Invalid password");
+                // Compare the password hash to their supplied password
+                String passwordHashFromArgs = new String(Encryption.generateKeyBytes(password));
 
-            // Create the actual user
-            User user = new User(userID, username, password);
-            
-            // Load the notes for this specific user
-            Path vault = Paths.get("data", user.getId());
-            Files.createDirectories(vault);
+                if(!passwordHashFromArgs.equals(passwordHashFromDB))
+                    throw new SecurityException("Invalid password");
 
-            Files.list(vault).forEach(file -> {
-                try {
-                    Note note = NoteSaver.loadNote(user, file.toString());
-                    user.addNote(note);
-                } catch (IOException | SecurityException e) {
-                    System.err.println("Failed to load note: " + file);
-                }
-            });
+                // Create the actual user
+                User user = new User(userID, username, password);
+                
+                // Load the notes for this specific user
+                Path vault = Paths.get("data", user.getId());
+                Files.createDirectories(vault);
 
-            // Return the resulting construction
-            return user;
+                Files.list(vault).forEach(file -> {
+                    try {
+                        Note note = NoteSaver.loadNote(user, file.toString());
+                        user.addNote(note);
+                    } catch (IOException | SecurityException e) {
+                        System.err.println("Failed to load note: " + file);
+                    }
+                });
+
+                // Return the resulting construction
+                return user;
+            }
         } catch(SQLException | IOException | InvalidKeySpecException | NoSuchAlgorithmException e){
             e.printStackTrace();
             throw new UserException();
@@ -172,13 +160,14 @@ public class UserSaver {
             initTables();
             
             // Query for all the users
-            Connection conn = getConnection();
-            Statement stat = conn.createStatement();
-            ResultSet rs = stat.executeQuery("SELECT username FROM users");
 
-            // Load each user
-            while (rs.next()) {
-                usernames.add(rs.getString("username"));
+            try (Connection conn = DriverManager.getConnection(DB_ADAPTER); Statement stat = conn.createStatement()){
+                ResultSet rs = stat.executeQuery("SELECT username FROM users");
+    
+                // Load each user
+                while (rs.next()) {
+                    usernames.add(rs.getString("username"));
+                }
             }
         } catch (SQLException e) {
             System.err.println(e.getMessage());
