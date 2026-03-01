@@ -12,20 +12,23 @@ public class User {
     private String password;
     private final List<Note> notes;
 
-
-    public User(String username, String password) {
+    public User(String id, String username, String password){
         /* OBJ11-J constructors must be fully constructed before returning 
         to the caller. In this code we check if the username or password is valid
         before constructing as to ensure that a incomplete object is NOT returned
         */
-        if(username == null || password == null){
-            throw new IllegalArgumentException("Username and password cannot be null");
-        } else{
-            this.id = UUID.randomUUID().toString();
-            this.username = username;
-            this.password = password;
-            this.notes = new ArrayList<>();
+        if(id == null || username == null || password == null){
+            throw new IllegalArgumentException("ID, Username, and Password cannot be null");
         }
+
+        this.id = id;
+        this.username = username;
+        this.password = password;
+        this.notes = new ArrayList<>();
+    }
+
+    public User(String username, String password) {
+        this(UUID.randomUUID().toString(), username, password);
     }
 
     public String getId() {

@@ -1,4 +1,4 @@
-package org.example;
+package org.example.persistence;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -23,26 +23,13 @@ import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.Mac;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
-import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.example.Note;
+import org.example.User;
+
 public class NoteSaver {
-    private static final byte[] SALT = {0x21, 0x24, 0x2F};
-
-    /**
-     * Generates a secure key from a password
-     * @param password
-     * @return
-     */
-    private static byte[] generateKeyBytes(String password) throws InvalidKeySpecException, NoSuchAlgorithmException {
-        SecretKeyFactory f = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-        PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), SALT, 100_000, 512);
-        byte[] keyBytes = f.generateSecret(spec).getEncoded();
-        return keyBytes;
-    }
-
     /**
      * Saves the note to a file
      * @param note
@@ -62,7 +49,7 @@ public class NoteSaver {
 
         try {
             // Generate keys to use
-            byte[] keyBytes = generateKeyBytes(user.getPassword());
+            byte[] keyBytes = Encryption.generateKeyBytes(user.getPassword());
             SecretKey encKey = new SecretKeySpec(Arrays.copyOfRange(keyBytes, 0, 32), "AES");
             SecretKey macKey = new SecretKeySpec(Arrays.copyOfRange(keyBytes, 32, 64), "HmacSHA256");
 
@@ -105,7 +92,7 @@ public class NoteSaver {
         // and this being the only function which can actually deserialize, thus making it unable to be bypassed;
         try {
             // Generate keys from the user
-            byte[] keyBytes = generateKeyBytes(user.getPassword());
+            byte[] keyBytes = Encryption.generateKeyBytes(user.getPassword());
             SecretKey encKey = new SecretKeySpec(Arrays.copyOfRange(keyBytes, 0, 32), "AES");
             SecretKey macKey = new SecretKeySpec(Arrays.copyOfRange(keyBytes, 32, 64), "HmacSHA256");
 

@@ -35,8 +35,8 @@ public class Note implements Serializable {
         }
     }
 
-    public Note(String title, String newContent) {
-        this.id = UUID.randomUUID().toString();
+    public Note(String id, String title, String newContent){
+        this.id = id;
         this.title = title;
         Content c = new Content(newContent);
         this.theContent = c;
@@ -44,8 +44,11 @@ public class Note implements Serializable {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public String getId() {
+    public Note(String title, String newContent) {
+        this(UUID.randomUUID().toString(), title, newContent);
+    }
 
+    public String getId() {
         return id;
     }
 
