@@ -1,9 +1,13 @@
 package org.example;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-public class Note {
+public class Note implements Serializable {
 
     private final String id;
     private String title;
@@ -14,7 +18,8 @@ public class Note {
     
     /*OBJ08-J Do not expose internal state of objects 
     content is private and is mutable, so we encapsulate it properly */
-    class Content {
+    /*SER05-J: Do not serialize instances of non-static inner classes */
+    static class Content implements Serializable {
         private String content;
 
         public Content(String content) {
@@ -30,8 +35,8 @@ public class Note {
         }
     }
 
-    public Note(String title, String newContent) {
-        this.id = UUID.randomUUID().toString();
+    public Note(String id, String title, String newContent){
+        this.id = id;
         this.title = title;
         Content c = new Content(newContent);
         this.theContent = c;
@@ -39,8 +44,11 @@ public class Note {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public String getId() {
+    public Note(String title, String newContent) {
+        this(UUID.randomUUID().toString(), title, newContent);
+    }
 
+    public String getId() {
         return id;
     }
 
@@ -77,6 +85,27 @@ public class Note {
         /*OBJ13-J return copies of objects to prevent external modification of internal state */
         LocalDateTime updatedAtCopy = LocalDateTime.of(updatedAt.toLocalDate(), updatedAt.toLocalTime());
         return updatedAtCopy;
+    }
+
+    /**
+     * SER01-J: Do not deviate from the proper signatures of serialization methods 
+     * The methods must match the correct signature
+     * @param stream
+     * @throws IOException
+     */
+    private void writeObject(ObjectOutputStream stream) throws IOException {
+        stream.defaultWriteObject();
+    }
+
+    /**
+     * SER01-J: Do not deviate from the proper signatures of serialization methods 
+     * The method must match the correct signature
+     * @param stream
+     * @throws IOException
+     * @throws ClassNotFoundException
+     */
+    private void readObject(ObjectInputStream stream) throws IOException, ClassNotFoundException {
+        stream.defaultReadObject();
     }
 
     @Override
