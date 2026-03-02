@@ -7,3 +7,6 @@ bin
 
 # Ignore Kotlin plugin data
 .kotlin
+
+*.ser
+data/

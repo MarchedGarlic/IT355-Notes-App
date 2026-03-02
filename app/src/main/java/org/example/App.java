@@ -6,6 +6,9 @@ package org.example;
 import java.util.List;
 import java.util.Scanner;
 
+import org.example.persistence.UserSaver;
+import org.example.persistence.UserSaver.UserException;
+
 public class App {
     
     /* OBJ10-J Do not use public static nonfinal fields
@@ -39,15 +42,13 @@ public class App {
 
     static User verifyLogon(String username, String password){
         // placeholder for testing
-       User user = new User(username, password);
-        return user;
-        // Placeholder for actual authentication logic you can dowhatever wtih this guys
-        // User theUser;
-        // if(true){ // Replace with actual condition to verify username and password
-        //     return theUser; // Return a the logged on User object if authentication is successful
-        // } else {
-        //     return null; // Return null if authentication fails
-        // }
+        try {
+            return UserSaver.loadUser(username, password);
+        } catch (UserException | SecurityException e) {
+            e.printStackTrace();
+        }
+
+        return null;
     }
 
     static void createAccount(){
@@ -57,8 +58,15 @@ public class App {
         String username = scanner.nextLine();
         System.out.println("Enter a password:");
         String password = scanner.nextLine();
+
         User user = new User(username, password); // need to implement the saving to the db
-        System.out.println("Account created successfully!");
+
+        try {
+            UserSaver.saveUser(user);
+            System.out.println("Account created successfully!");
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
     }
 
     static void runtime(User user){
@@ -90,8 +98,13 @@ public class App {
             String content = scanner.nextLine();
             Note newNote = new Note(title, content);
             user.addNote(newNote);
-            System.out.println("Note created successfully!");
-
+            
+            try {
+                UserSaver.saveUser(user);
+                System.out.println("Note created successfully!");
+            } catch (UserException e) {
+                e.printStackTrace();
+            }
         } else if(action.equalsIgnoreCase("view")){
 
             /* OBJ09-J we compare if the class being checked is 
@@ -132,7 +145,13 @@ public class App {
                 System.out.println("Enter the new content for your note:");
                 String newContent = scanner.nextLine();
                 noteToEdit.setContent(newContent);
-                System.out.println("Note edited successfully!"); 
+
+                try {
+                    UserSaver.saveUser(user);
+                    System.out.println("Note edited successfully!"); 
+                } catch (UserException e) {
+                    e.printStackTrace();
+                }
             } else {
                 System.out.println("Note not found! Please check the title and try again.");
             }
@@ -149,7 +168,13 @@ public class App {
             }
             if(noteToDelete != null){
                 user.removeNote(noteToDelete.getTitle());
-                System.out.println("Note deleted successfully!");
+
+                try {
+                    UserSaver.saveUser(user);
+                    System.out.println("Note deleted successfully!");
+                } catch (UserException e) {
+                    e.printStackTrace();
+                }
             } else {
                 System.out.println("Note not found! Please check the title and try again.");
             }
