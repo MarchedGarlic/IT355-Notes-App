@@ -177,7 +177,7 @@ public class App {
         }
     }
         Scanner scanner = new Scanner(System.in);
-        System.out.println("What would you like to do? (Type 'create', 'view', 'edit', or 'delete')");
+        System.out.println("What would you like to do? (Type 'create', 'view', 'edit', 'delete', 'export', 'import', 'search', 'history', or 'clear history')");
         String action = scanner.nextLine();
 
         if(action.equalsIgnoreCase("create")){
@@ -250,6 +250,58 @@ public class App {
             } else {
                 System.out.println("Note not found! Please check the title and try again.");
             }
+
+        } else if(action.equalsIgnoreCase("export")){
+            System.out.println("Enter the directory to export notes to (press Enter for default 'data/exports'):");
+            String exportDir = scanner.nextLine().trim();
+            if (exportDir.isEmpty()) {
+                exportDir = "data/exports";
+            }
+            System.out.println("Exporting all notes in parallel to " + exportDir + "...");
+            user.exportAllNotesParallel(exportDir);
+
+        } else if(action.equalsIgnoreCase("import")){
+            System.out.println("Enter the directory to import notes from (press Enter for default 'data/exports'):");
+            String importDir = scanner.nextLine().trim();
+            if (importDir.isEmpty()) {
+                importDir = "data/exports";
+            }
+            System.out.println("Importing notes from " + importDir + "...");
+            user.importNotesParallel(importDir);
+            try {
+                UserSaver.saveUser(user);
+                System.out.println("Imported notes saved successfully!");
+            } catch (UserException e) {
+                e.printStackTrace();
+            }
+
+        } else if(action.equalsIgnoreCase("search")){
+            System.out.println("Enter a keyword to search your notes:");
+            String keyword = scanner.nextLine();
+            List<Note> results = NoteSearcher.search(userNotes, keyword);
+            if (results.isEmpty()) {
+                System.out.println("No notes matched '" + keyword + "'.");
+            } else {
+                System.out.println("Found " + results.size() + " matching note(s):");
+                for (Note note : results) {
+                    System.out.println("  - " + note.getTitle());
+                }
+            }
+
+        } else if(action.equalsIgnoreCase("history")){
+            List<String> history = NoteSearcher.getSearchHistory();
+            if (history.isEmpty()) {
+                System.out.println("No search history.");
+            } else {
+                System.out.println("Search history:");
+                for (int i = 0; i < history.size(); i++) {
+                    System.out.println("  " + (i + 1) + ". " + history.get(i));
+                }
+            }
+
+        } else if(action.equalsIgnoreCase("clear history")){
+            NoteSearcher.clearHistory();
+            System.out.println("Search history cleared.");
 
         } else if(action.toLowerCase().startsWith("delete")){
             System.out.println("Enter the title of the note you want to delete:");
