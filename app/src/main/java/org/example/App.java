@@ -3,6 +3,9 @@
  */
 package org.example;
 
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.Normalizer;
 import java.util.List;
 import java.util.Scanner;
@@ -37,6 +40,17 @@ public class App {
         Pattern.compile("\\b(union|select|insert|update|delete|drop|create|alter|exec|execute)\\b", Pattern.CASE_INSENSITIVE),
         Pattern.compile("(\\bor\\b|\\band\\b)\\s*[=<>]", Pattern.CASE_INSENSITIVE)
     };
+
+    /* IDS07-J: Allowlist for untrusted path input that could otherwise be
+    misused as command/argument text if ever forwarded to Runtime.exec().
+    This app intentionally does not execute OS commands.
+    */
+    private static final Pattern SAFE_DIRECTORY_INPUT = Pattern.compile("^[a-zA-Z0-9_./\\\\:\\-\\s]+$");
+
+    /* IDS16-J: Prevent XML injection by rejecting invalid XML control chars
+    and escaping reserved XML characters before storing/using untrusted text.
+    */
+    private static final Pattern XML_INVALID_CHAR_PATTERN = Pattern.compile("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]");
 
     /**
      * IDS00-J: Checks whether the supplied input contains common SQL injection patterns.
@@ -151,6 +165,100 @@ public class App {
         return cleaned;
     }
 
+    /**
+     * IDS07-J: Sanitizes untrusted directory input so it cannot be used as
+     * command text/arguments. The app does not call Runtime.exec(), and this
+     * method enforces safe input handling as defense-in-depth.
+     *
+     * @param rawInput user-supplied directory text
+     * @param defaultDir fallback directory when input is blank
+     * @return normalized safe directory path string
+     * @throws IllegalArgumentException if the input contains unsafe content
+     */
+    static String sanitizeDirectoryInput(String rawInput, String defaultDir) {
+        String candidate = (rawInput == null) ? "" : normalizeInput(rawInput);
+        if (candidate == null || candidate.isBlank()) {
+            return defaultDir;
+        }
+
+        candidate = candidate.trim();
+
+        if (candidate.length() > 200) {
+            throw new IllegalArgumentException("Directory input is too long");
+        }
+
+        if (!SAFE_DIRECTORY_INPUT.matcher(candidate).matches()) {
+            throw new IllegalArgumentException("Directory input contains unsupported characters");
+        }
+
+        if (candidate.contains(";") || candidate.contains("&") || candidate.contains("|")
+                || candidate.contains("`") || candidate.contains("$") || candidate.contains(">")
+                || candidate.contains("<") || candidate.contains("\n") || candidate.contains("\r")) {
+            throw new IllegalArgumentException("Directory input contains unsafe command characters");
+        }
+
+        Path normalizedPath;
+        try {
+            normalizedPath = Paths.get(candidate).normalize();
+        } catch (InvalidPathException e) {
+            throw new IllegalArgumentException("Directory input is not a valid path", e);
+        }
+
+        for (Path segment : normalizedPath) {
+            if ("..".equals(segment.toString())) {
+                throw new IllegalArgumentException("Directory traversal is not allowed");
+            }
+        }
+
+        return normalizedPath.toString();
+    }
+
+    /**
+     * IDS16-J: Escapes reserved XML characters so untrusted text is treated
+     * as data rather than markup.
+     *
+     * @param userInput untrusted text
+     * @return XML-escaped text
+     */
+    static String escapeXml(String userInput) {
+        String escaped = userInput.replace("&", "&amp;");
+        escaped = escaped.replace("<", "&lt;");
+        escaped = escaped.replace(">", "&gt;");
+        escaped = escaped.replace("\"", "&quot;");
+        escaped = escaped.replace("'", "&apos;");
+        return escaped;
+    }
+
+    /**
+     * IDS16-J: Validates and sanitizes untrusted input before it could be
+     * placed into XML content.
+     *
+     * @param userInput untrusted text
+     * @return XML-safe text, or null when invalid
+     */
+    static String processXmlInput(String userInput) {
+        if (userInput == null) {
+            return null;
+        }
+
+        String normalized = normalizeInput(userInput);
+        if (normalized == null) {
+            return null;
+        }
+
+        String cleaned = normalized.trim();
+        if (cleaned.isEmpty()) {
+            return "";
+        }
+
+        if (XML_INVALID_CHAR_PATTERN.matcher(cleaned).find()) {
+            System.err.println("IDS16-J: Rejected XML-unsafe control characters in input");
+            return null;
+        }
+
+        return escapeXml(cleaned);
+    }
+
 
      static User SignOn(){
         Scanner scanner = new Scanner(System.in);
@@ -228,7 +336,11 @@ public class App {
     }
 
     static void runtime(User user){
+        /* TSM01-J: Create session objects via static factory so a partially
+        constructed this reference is never published. */
+        UserSession session = UserSession.newSession(user.getUsername());
         System.out.println("Welcome " + user.getUsername() + "! You can now create and manage your notes.");
+        System.out.println("Session started: " + session.getSessionId());
         List<Note> userNotes = user.getNotes();
         System.out.println("Here are your current notes:");
         if(userNotes.isEmpty()){
@@ -244,8 +356,13 @@ public class App {
         String action = scanner.nextLine();
 
         if(action.equalsIgnoreCase("create")){
+            /* IDS16-J: XML-safe sanitization before storing untrusted note fields. */
             System.out.println("Enter the title of your new note:");
-            String title = scanner.nextLine();
+            String title = processXmlInput(scanner.nextLine());
+            if (title == null || title.isEmpty()) {
+                System.out.println("Invalid note title for XML-safe processing.");
+                return;
+            }
             for(Note note : userNotes){
                 if(note.getTitle().equalsIgnoreCase(title)){
                     System.out.println("A note with this title already exists! Please choose a different title.");
@@ -253,7 +370,11 @@ public class App {
                 }
             }
             System.out.println("Enter the content of your new note:");
-            String content = scanner.nextLine();
+            String content = processXmlInput(scanner.nextLine());
+            if (content == null) {
+                System.out.println("Invalid note content for XML-safe processing.");
+                return;
+            }
             Note newNote = new Note(title, content);
             user.addNote(newNote);
             
@@ -289,6 +410,7 @@ public class App {
             }
 
         } else if(action.equalsIgnoreCase("edit")){
+            /* IDS16-J: XML-safe sanitization before updating untrusted content. */
             System.out.println("Enter the title of the note you want to edit:");
             String noteTitle = scanner.nextLine();
             Note noteToEdit = null; 
@@ -301,7 +423,11 @@ public class App {
             if(noteToEdit != null){
                 //does NOT append to the existing content, it replaces it entirely let me know if you want it to append instead
                 System.out.println("Enter the new content for your note:");
-                String newContent = scanner.nextLine();
+                String newContent = processXmlInput(scanner.nextLine());
+                if (newContent == null) {
+                    System.out.println("Invalid note content for XML-safe processing.");
+                    return;
+                }
                 noteToEdit.setContent(newContent);
 
                 try {
@@ -315,19 +441,27 @@ public class App {
             }
 
         } else if(action.equalsIgnoreCase("export")){
+            /* IDS07-J: Sanitize untrusted path input before filesystem operations. */
             System.out.println("Enter the directory to export notes to (press Enter for default 'data/exports'):");
-            String exportDir = scanner.nextLine().trim();
-            if (exportDir.isEmpty()) {
-                exportDir = "data/exports";
+            String exportDir;
+            try {
+                exportDir = sanitizeDirectoryInput(scanner.nextLine(), "data/exports");
+            } catch (IllegalArgumentException e) {
+                System.out.println("Invalid export directory: " + e.getMessage());
+                return;
             }
             System.out.println("Exporting all notes in parallel to " + exportDir + "...");
             user.exportAllNotesParallel(exportDir);
 
         } else if(action.equalsIgnoreCase("import")){
+            /* IDS07-J: Sanitize untrusted path input before filesystem operations. */
             System.out.println("Enter the directory to import notes from (press Enter for default 'data/exports'):");
-            String importDir = scanner.nextLine().trim();
-            if (importDir.isEmpty()) {
-                importDir = "data/exports";
+            String importDir;
+            try {
+                importDir = sanitizeDirectoryInput(scanner.nextLine(), "data/exports");
+            } catch (IllegalArgumentException e) {
+                System.out.println("Invalid import directory: " + e.getMessage());
+                return;
             }
             System.out.println("Importing notes from " + importDir + "...");
             user.importNotesParallel(importDir);
@@ -339,6 +473,7 @@ public class App {
             }
 
         } else if(action.equalsIgnoreCase("search")){
+            /* TPS04-J: ThreadLocal is reset per pooled search task in NoteSearcher. */
             System.out.println("Enter a keyword to search your notes:");
             String keyword = scanner.nextLine();
             List<Note> results = NoteSearcher.search(userNotes, keyword);
@@ -352,6 +487,7 @@ public class App {
             }
 
         } else if(action.equalsIgnoreCase("history")){
+            /* LCK04-J: Frequency view iteration is synchronized on backing map in NoteSearcher. */
             List<String> history = NoteSearcher.getSearchHistory();
             if (history.isEmpty()) {
                 System.out.println("No search history.");
@@ -359,6 +495,14 @@ public class App {
                 System.out.println("Search history:");
                 for (int i = 0; i < history.size(); i++) {
                     System.out.println("  " + (i + 1) + ". " + history.get(i));
+                }
+
+                List<String> frequencies = NoteSearcher.getSearchKeywordFrequencies();
+                if (!frequencies.isEmpty()) {
+                    System.out.println("Keyword frequencies:");
+                    for (String frequency : frequencies) {
+                        System.out.println("  - " + frequency);
+                    }
                 }
             }
 

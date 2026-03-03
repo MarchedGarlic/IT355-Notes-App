@@ -99,13 +99,27 @@ public class Note implements Serializable {
 
     /**
      * SER01-J: Do not deviate from the proper signatures of serialization methods 
-     * The method must match the correct signature
+     * The method must match the correct signature.
+     * SER06-J: Make defensive copies of private mutable components during deserialization.
      * @param stream
      * @throws IOException
      * @throws ClassNotFoundException
      */
     private void readObject(ObjectInputStream stream) throws IOException, ClassNotFoundException {
         stream.defaultReadObject();
+
+        /* SER06-J: Defensively copy mutable state after deserialization. */
+        if (theContent == null) {
+            throw new IOException("Invalid serialized Note: content is missing");
+        }
+
+        String deserializedContent = theContent.getContent();
+        if (deserializedContent == null) {
+            throw new IOException("Invalid serialized Note: content text is missing");
+        }
+
+        /* SER06-J: Defensive copy of mutable component after deserialization */
+        theContent = new Content(deserializedContent);
     }
 
     @Override
