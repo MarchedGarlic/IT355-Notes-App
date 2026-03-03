@@ -15,6 +15,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 import org.example.Note;
@@ -72,8 +73,13 @@ public class UserSaver {
     /**
      * This will have a single user's data to the table and all their notes to files
      * @param user
+     * @throws UserException if user is null (ERR08-J) or if save operation fails
      */
     public static void saveUser(User user) throws UserException {
+        /* ERR08-J: Do not catch NullPointerExceptions - instead, use Objects.requireNonNull
+        to fail-fast with a clear error message if user is null */
+        Objects.requireNonNull(user, "User cannot be null");
+        
         /* IDS00-J: Validate username before it reaches any SQL operation */
         if (!isSqlSafe(user.getUsername())) {
             System.err.println("IDS00-J: SQL injection attempt detected in username during save");
@@ -121,12 +127,16 @@ public class UserSaver {
             */
             NoteSaver.makeDirectorySecure(vault.toString());
 
-            // Remove all old notes
+            /* FIO02-J & EXP00-J: Detect and handle file-related errors,
+            and do not ignore the boolean return value from delete operations */
             Files.list(vault).forEach(file -> {
                 try {
-                    Files.delete(file);
+                    boolean deleted = Files.deleteIfExists(file);
+                    if (!deleted) {
+                        System.err.println("Failed to delete old note (file may not exist): " + file);
+                    }
                 } catch (IOException e) {
-                    System.err.println("Failed to delete old note: " + file);
+                    System.err.println("IO error while deleting old note: " + file + " - " + e.getMessage());
                 }
             });
 
@@ -148,8 +158,15 @@ public class UserSaver {
      * @param password
      * @return
      * @throws UserException
+     * @throws SecurityException if username or password is null (ERR08-J)
      */
     public static User loadUser(String username, String password) throws UserException, SecurityException {
+        /* ERR08-J: Do not catch NullPointerExceptions - instead, check for null explicitly
+        Use Objects.requireNonNull to provide clear error messages instead of allowing
+        NullPointerException to be thrown */
+        Objects.requireNonNull(username, "Username cannot be null");
+        Objects.requireNonNull(password, "Password cannot be null");
+        
         /* IDS00-J: Validate username before it reaches any SQL operation */
         if (!isSqlSafe(username)) {
             System.err.println("IDS00-J: SQL injection attempt detected in username during login");

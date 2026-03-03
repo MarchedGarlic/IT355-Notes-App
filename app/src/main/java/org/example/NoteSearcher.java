@@ -124,14 +124,21 @@ public class NoteSearcher {
     /**
      * Clears all search history from memory and disk.
      * LCK06-J: Uses the static historyLock to protect the static searchHistory list.
+     * FIO02-J & EXP00-J: Detect file-related errors and handle the boolean return value from deleteIfExists
      */
     public static void clearHistory() {
         synchronized (historyLock) {
             searchHistory.clear();
             try {
-                Files.deleteIfExists(HISTORY_FILE);
+                /* FIO02-J: Check the return value to determine if file was actually deleted */
+                boolean deleted = Files.deleteIfExists(HISTORY_FILE);
+                if (deleted) {
+                    System.out.println("Search history file successfully deleted.");
+                } else {
+                    System.out.println("FIO02-J: Search history file did not exist, nothing to delete.");
+                }
             } catch (IOException e) {
-                System.err.println("Warning: Could not delete search history file: " + e.getMessage());
+                System.err.println("FIO02-J: IO error while deleting search history file: " + e.getMessage());
             }
         }
     }

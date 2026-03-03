@@ -3,6 +3,7 @@
  */
 package org.example;
 
+import java.text.Normalizer;
 import java.util.List;
 import java.util.Scanner;
 import java.util.regex.Pattern;
@@ -99,6 +100,57 @@ public class App {
         return sanitized;
     }
 
+    /**
+     * IDS01-J: Normalizes user input before validation.
+     * Normalization must happen BEFORE validation to prevent bypass attacks using
+     * alternate Unicode representations.
+     *
+     * @param rawInput The untrusted raw input to normalize
+     * @return The normalized input
+     */
+    static String normalizeInput(String rawInput) {
+        if (rawInput == null || rawInput.isEmpty()) {
+            return null;
+        }
+        
+        String normalized = Normalizer.normalize(rawInput, Normalizer.Form.NFKC);
+        return normalized;
+    }
+
+    /**
+     * IDS11-J: Performs string modifications BEFORE validation.
+     * This method cleans the input by trimming whitespace and removing control characters,
+     * then validates the cleaned result. All modifications happen before validation
+     * to prevent bypass attacks.
+     *
+     * @param rawInput The untrusted raw input to clean and validate
+     * @return The cleaned input if valid, or null if invalid
+     * @throws IllegalArgumentException if the cleaned input fails validation
+     */
+    static String cleanAndValidateInput(String rawInput) {
+        if (rawInput == null) {
+            throw new IllegalArgumentException("Input cannot be null");
+        }
+
+        /* IDS11-J: Perform ALL string modifications BEFORE validation */
+        String cleaned = rawInput.trim();
+        
+        /* Remove control characters and other unsafe Unicode categories */
+        cleaned = cleaned.replaceAll("[\\p{Cc}\\p{Cn}]", "");
+        
+        /* IDS11-J: NOW validate the cleaned string */
+        if (cleaned.length() < 3 || cleaned.length() > 50) {
+            throw new IllegalArgumentException("Input must be 3-50 characters long after cleaning");
+        }
+        
+        /* Validate that it only contains safe characters after cleaning */
+        if (!Pattern.matches("^[a-zA-Z0-9_@.\\s-]+$", cleaned)) {
+            throw new IllegalArgumentException("Input contains invalid characters after cleaning");
+        }
+        
+        return cleaned;
+    }
+
 
      static User SignOn(){
         Scanner scanner = new Scanner(System.in);
@@ -128,7 +180,18 @@ public class App {
     }
 
     static User verifyLogon(String username, String password){
-        // placeholder for testing
+        /* ERR08-J: Do not allow NullPointerExceptions - check for null explicitly
+        and provide clear error messages to the caller */
+        if (username == null || username.isEmpty()) {
+            System.err.println("Username cannot be null or empty");
+            return null;
+        }
+        if (password == null || password.isEmpty()) {
+            System.err.println("Password cannot be null or empty");
+            return null;
+        }
+        
+        // Perform login attempt with valid credentials
         try {
             return UserSaver.loadUser(username, password);
         } catch (UserException | SecurityException e) {
