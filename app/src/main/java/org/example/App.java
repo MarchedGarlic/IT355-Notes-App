@@ -5,6 +5,7 @@ package org.example;
 
 import java.util.List;
 import java.util.Scanner;
+import java.util.regex.Pattern;
 
 import org.example.persistence.UserSaver;
 import org.example.persistence.UserSaver.UserException;
@@ -19,12 +20,98 @@ public class App {
         public static final String USER_ACCESS = "USER";
     }
 
+    /* FIO14-J: Perform proper cleanup at program termination
+    A shared Scanner reference is maintained so that it can be properly
+    closed during shutdown, whether the program exits normally or is
+    abruptly terminated (e.g. Ctrl+C).
+    */
+    private static Scanner appScanner = null;
+
+    /* IDS00-J: Prevent SQL injection vulnerabilities
+    SQL injection patterns used to detect and reject malicious input
+    before it reaches the database layer
+    */
+    private static final Pattern[] SQL_INJECTION_PATTERNS = {
+        Pattern.compile("('|(\\-\\-)|(;)|(\\|))", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\b(union|select|insert|update|delete|drop|create|alter|exec|execute)\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(\\bor\\b|\\band\\b)\\s*[=<>]", Pattern.CASE_INSENSITIVE)
+    };
+
+    /**
+     * IDS00-J: Checks whether the supplied input contains common SQL injection patterns.
+     *
+     * @param userInput The raw input to evaluate
+     * @return {@code true} if no injection patterns are detected; {@code false} otherwise
+     * @throws IllegalArgumentException if {@code userInput} is {@code null}
+     */
+    static boolean isSqlSafe(String userInput) {
+        if (userInput == null) {
+            throw new IllegalArgumentException("Input cannot be null");
+        }
+        // Check against SQL injection patterns
+        for (Pattern pattern : SQL_INJECTION_PATTERNS) {
+            if (pattern.matcher(userInput).find()) {
+                return false; // SQL injection pattern detected
+            }
+        }
+        return true; // Input appears safe from SQL injection
+    }
+
+    /**
+     * IDS00-J: Removes characters and keywords commonly used in SQL injection attempts.
+     *
+     * @param userInput The raw input to clean
+     * @return A sanitized version of the input with risky tokens removed
+     * @throws IllegalArgumentException if {@code userInput} is {@code null}
+     */
+    static String sanitizeSqlInput(String userInput) {
+        if (userInput == null) {
+            throw new IllegalArgumentException("Input cannot be null");
+        }
+        // Remove SQL injection characters
+        String cleaned = userInput.replaceAll("[';\"\\-\\-]", "");
+        // Remove SQL keywords (case insensitive)
+        cleaned = cleaned.replaceAll("(?i)\\b(union|select|insert|update|delete|drop|create|alter|exec|execute)\\b", "");
+        // Remove dangerous operators used in SQL injection
+        cleaned = cleaned.replaceAll("(?i)(\\bor\\b|\\band\\b)\\s*[=<>]", "");
+        return cleaned.trim();
+    }
+
+    /**
+     * IDS00-J: Validates input for SQL injection patterns and sanitizes it if safe.
+     *
+     * @param userInput The input to process
+     * @return Sanitized input if safe, {@code null} if empty or malicious
+     */
+    static String processSqlInput(String userInput) {
+        if (userInput == null || userInput.trim().isEmpty()) {
+            return null;
+        }
+        // First check if input is safe
+        if (!isSqlSafe(userInput)) {
+            System.err.println("SQL injection attempt detected: " + userInput);
+            return null; // Reject potentially malicious input
+        }
+        // Sanitize for extra protection
+        String sanitized = sanitizeSqlInput(userInput);
+        System.out.println("Original: " + userInput);
+        System.out.println("Processed: " + sanitized);
+        return sanitized;
+    }
+
 
      static User SignOn(){
         Scanner scanner = new Scanner(System.in);
        
         System.out.println("Enter your username:");
         String username = scanner.nextLine(); // Read username input
+
+        /* IDS00-J: Validate and sanitize username input to prevent SQL injection */
+        username = processSqlInput(username);
+        if (username == null) {
+            System.out.println("Invalid username input detected. Please try again.");
+            return null;
+        }
 
         System.out.println("Enter your Password:");
         String password = scanner.nextLine(); // Read password input
@@ -56,6 +143,14 @@ public class App {
         System.out.println("Creating a new account...");
         System.out.println("Enter a username:");
         String username = scanner.nextLine();
+
+        /* IDS00-J: Validate and sanitize username input to prevent SQL injection */
+        username = processSqlInput(username);
+        if (username == null) {
+            System.out.println("Invalid username input detected. Account creation aborted.");
+            return;
+        }
+
         System.out.println("Enter a password:");
         String password = scanner.nextLine();
 
@@ -184,11 +279,59 @@ public class App {
         }
         
     }
+
+    /**
+     * FIO14-J: Manually closes all open resources before program termination.
+     * This ensures resources such as the Scanner are properly released.
+     */
+    static void manualCleanup() {
+        if (appScanner != null) {
+            System.out.println("Manual cleanup: Closing scanner");
+            appScanner.close();
+            appScanner = null;
+        }
+    }
+
+    /**
+     * FIO14-J: Performs proper cleanup and then terminates the program.
+     * Uses Runtime.exit() instead of Runtime.halt() so that shutdown hooks
+     * are allowed to run.
+     *
+     * @param exitCode Exit code for the program (0 = normal, nonzero = error)
+     */
+    static void safeExit(int exitCode) {
+        try {
+            // Perform manual cleanup first
+            manualCleanup();
+
+            // Use exit() instead of halt() to allow shutdown hooks to run
+            System.out.println("Exiting safely...");
+            Runtime.getRuntime().exit(exitCode);
+        } catch (Exception e) {
+            System.err.println("Error during cleanup: " + e.getMessage());
+            // Force exit if cleanup fails
+            Runtime.getRuntime().halt(1);
+        }
+    }
+
     public static void main(String[] args) {
      System.out.println("Hello Welcome to the Notes App! This sign on is a " + premissions.USER_ACCESS + " access level");
+
+      /* FIO14-J: Register a shutdown hook to ensure the Scanner is closed
+      even if the program is abruptly terminated (e.g. Ctrl+C or kill signal).
+      Uses Runtime.exit() path so hooks are invoked; never Runtime.halt().
+      */
+      appScanner = new Scanner(System.in);
+      Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+          if (appScanner != null) {
+              System.out.println("Shutdown hook: Closing scanner");
+              appScanner.close();
+              appScanner = null;
+          }
+      }));
+
       System.out.println("Would you like to sign on or create an account? (Type 'SignOn' or 'create')");
-      Scanner scanner = new Scanner(System.in);
-        String choice = scanner.nextLine();
+        String choice = appScanner.nextLine();
     if(choice.equalsIgnoreCase("SignOn")){
         User signedOnUser = SignOn();
         if(signedOnUser != null){
@@ -203,7 +346,9 @@ public class App {
     }else{
         System.out.println("Invalid choice! Please restart the application and choose either 'SignOn' or 'create'.");
     }
-    scanner.close();
+
+    /* FIO14-J: Perform manual cleanup and exit safely */
+    safeExit(0);
 
     }
 }

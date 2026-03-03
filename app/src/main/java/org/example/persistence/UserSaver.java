@@ -2,8 +2,10 @@ package org.example.persistence;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.sql.Connection;
@@ -13,12 +15,42 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.regex.Pattern;
 
 import org.example.Note;
 import org.example.User;
 
 public class UserSaver {
     private static final String DB_ADAPTER = "jdbc:sqlite:data/sample.db";
+
+    /* IDS00-J: Prevent SQL injection vulnerabilities
+    SQL injection patterns used to validate input at the database layer
+    as an additional defense-in-depth measure
+    */
+    private static final Pattern[] SQL_INJECTION_PATTERNS = {
+        Pattern.compile("('|(\\-\\-)|(;)|(\\|))", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\b(union|select|insert|update|delete|drop|create|alter|exec|execute)\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(\\bor\\b|\\band\\b)\\s*[=<>]", Pattern.CASE_INSENSITIVE)
+    };
+
+    /**
+     * IDS00-J: Checks whether the supplied input contains common SQL injection patterns.
+     * Used as defense-in-depth before parameterized queries.
+     *
+     * @param userInput The raw input to evaluate
+     * @return {@code true} if no injection patterns are detected; {@code false} otherwise
+     */
+    private static boolean isSqlSafe(String userInput) {
+        if (userInput == null) {
+            return false;
+        }
+        for (Pattern pattern : SQL_INJECTION_PATTERNS) {
+            if (pattern.matcher(userInput).find()) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /**
      * This class is the exception if a user cant be saved
@@ -42,6 +74,12 @@ public class UserSaver {
      * @param user
      */
     public static void saveUser(User user) throws UserException {
+        /* IDS00-J: Validate username before it reaches any SQL operation */
+        if (!isSqlSafe(user.getUsername())) {
+            System.err.println("IDS00-J: SQL injection attempt detected in username during save");
+            throw new UserException();
+        }
+
         // Tries to save user to the disk
         try {
             // Make sure the tables actually exist
@@ -67,6 +105,21 @@ public class UserSaver {
             // Prep the note vault
             Path vault = Paths.get("data", user.getId());
             Files.createDirectories(vault);
+
+            /* FIO00-J: Do not operate on files in shared directories
+            Verify the vault directory is a real directory and not a symbolic link
+            before writing any note files into it
+            */
+            BasicFileAttributes vaultAttrs = Files.readAttributes(vault, BasicFileAttributes.class,
+                                                                   LinkOption.NOFOLLOW_LINKS);
+            if (!vaultAttrs.isDirectory() || vaultAttrs.isSymbolicLink()) {
+                throw new IOException("FIO00-J: Note vault is not a secure directory: " + vault);
+            }
+
+            /* FIO01-J: Create files with appropriate access permissions
+            Restrict the vault directory to owner-only access after creation
+            */
+            NoteSaver.makeDirectorySecure(vault.toString());
 
             // Remove all old notes
             Files.list(vault).forEach(file -> {
@@ -97,6 +150,12 @@ public class UserSaver {
      * @throws UserException
      */
     public static User loadUser(String username, String password) throws UserException, SecurityException {
+        /* IDS00-J: Validate username before it reaches any SQL operation */
+        if (!isSqlSafe(username)) {
+            System.err.println("IDS00-J: SQL injection attempt detected in username during login");
+            throw new SecurityException("Invalid username input");
+        }
+
         try {
             // Make sure tables exist, even if just to query something that doesn't exist
             initTables();
@@ -128,6 +187,21 @@ public class UserSaver {
                 // Load the notes for this specific user
                 Path vault = Paths.get("data", user.getId());
                 Files.createDirectories(vault);
+
+                /* FIO00-J: Do not operate on files in shared directories
+                Verify the vault directory is a real directory and not a symbolic link
+                before reading any note files from it
+                */
+                BasicFileAttributes vaultAttrs = Files.readAttributes(vault, BasicFileAttributes.class,
+                                                                       LinkOption.NOFOLLOW_LINKS);
+                if (!vaultAttrs.isDirectory() || vaultAttrs.isSymbolicLink()) {
+                    throw new IOException("FIO00-J: Note vault is not a secure directory: " + vault);
+                }
+
+                /* FIO01-J: Create files with appropriate access permissions
+                Ensure the vault directory has owner-only access before loading notes from it
+                */
+                NoteSaver.makeDirectorySecure(vault.toString());
 
                 Files.list(vault).forEach(file -> {
                     try {
