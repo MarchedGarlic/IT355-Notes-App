@@ -7,7 +7,15 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Provides parallel keyword search across notes and maintains
@@ -23,6 +31,14 @@ public class NoteSearcher {
        concurrent access from different NoteSearcher references. */
     private static final Object historyLock = new Object();
     private static final List<String> searchHistory = new ArrayList<>();
+    /* TPS04-J: ThreadLocal value is reinitialized per task and removed in finally. */
+    private static final ThreadLocal<String> searchKeywordLocal = new ThreadLocal<>();
+
+     /* LCK04-J: Do not synchronize on a collection view if the backing collection
+         is accessible. We keep a synchronized backing map and a key-set view.
+         Any iteration over the key-set view is synchronized on the backing map. */
+     private static final Map<String, Integer> searchCountMap = Collections.synchronizedMap(new HashMap<>());
+     private static final Set<String> searchCountKeyView = searchCountMap.keySet();
 
     // Load persisted history from disk when the class is first used
     static {
@@ -31,6 +47,9 @@ public class NoteSearcher {
                 if (Files.exists(HISTORY_FILE)) {
                     List<String> lines = Files.readAllLines(HISTORY_FILE);
                     searchHistory.addAll(lines);
+                    for (String keyword : lines) {
+                        searchCountMap.merge(keyword, 1, Integer::sum);
+                    }
                 }
             } catch (IOException e) {
                 System.err.println("Warning: Could not load search history: " + e.getMessage());
@@ -61,34 +80,61 @@ public class NoteSearcher {
 
         String lowerKeyword = keyword.toLowerCase();
         List<Note> results = new ArrayList<>();
-        List<Thread> threads = new ArrayList<>();
 
-        for (Note note : notes) {
-            Thread t = new Thread(() -> {
-                boolean titleMatch = note.getTitle().toLowerCase().contains(lowerKeyword);
-                boolean contentMatch = note.getContent().toLowerCase().contains(lowerKeyword);
-
-                if (titleMatch || contentMatch) {
-                    /* LCK02-J: Synchronize on the class literal NoteSearcher.class
-                       to safely collect results from all search threads.
-                       Using getClass() here would be wrong because a subclass
-                       would get a different lock object. */
-                    synchronized (NoteSearcher.class) {
-                        results.add(note);
-                    }
-                }
-            });
-            threads.add(t);
-            t.start(); // THI00-J: Use Thread.start(), never Thread.run()
+        if (notes.isEmpty()) {
+            return results;
         }
 
-        // Wait for all search threads to finish
-        for (Thread t : threads) {
+        int poolSize = Math.min(notes.size(), Runtime.getRuntime().availableProcessors());
+        ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, poolSize));
+        List<Future<?>> tasks = new ArrayList<>();
+
+        for (Note note : notes) {
+            Future<?> task = executor.submit(() -> {
+                /* TPS04-J: Ensure ThreadLocal variables are reinitialized and cleaned
+                   when running tasks in a thread pool. */
+                try {
+                    searchKeywordLocal.set(lowerKeyword);
+                    String localKeyword = searchKeywordLocal.get();
+
+                    boolean titleMatch = note.getTitle().toLowerCase().contains(localKeyword);
+                    boolean contentMatch = note.getContent().toLowerCase().contains(localKeyword);
+
+                    if (titleMatch || contentMatch) {
+                        /* LCK02-J: Synchronize on the class literal NoteSearcher.class
+                           to safely collect results from all search threads.
+                           Using getClass() here would be wrong because a subclass
+                           would get a different lock object. */
+                        synchronized (NoteSearcher.class) {
+                            results.add(note);
+                        }
+                    }
+                } finally {
+                    searchKeywordLocal.remove();
+                }
+            });
+            tasks.add(task);
+        }
+
+        for (Future<?> task : tasks) {
             try {
-                t.join();
+                task.get();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                break;
+            } catch (ExecutionException e) {
+                System.err.println("Search worker failed: " + e.getMessage());
             }
+        }
+
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
         }
 
         return results;
@@ -101,6 +147,7 @@ public class NoteSearcher {
     public static void recordSearch(String keyword) {
         synchronized (historyLock) {
             searchHistory.add(keyword);
+            searchCountMap.merge(keyword, 1, Integer::sum);
             try {
                 Files.createDirectories(HISTORY_FILE.getParent());
                 Files.writeString(HISTORY_FILE, keyword + System.lineSeparator(),
@@ -122,6 +169,21 @@ public class NoteSearcher {
     }
 
     /**
+     * Returns formatted keyword frequency lines.
+     * LCK04-J: Synchronize on the backing map (searchCountMap), not on the
+     * key-set collection view (searchCountKeyView), when iterating keys.
+     */
+    public static List<String> getSearchKeywordFrequencies() {
+        synchronized (searchCountMap) {
+            List<String> frequencies = new ArrayList<>();
+            for (String keyword : searchCountKeyView) {
+                frequencies.add(keyword + " => " + searchCountMap.get(keyword));
+            }
+            return frequencies;
+        }
+    }
+
+    /**
      * Clears all search history from memory and disk.
      * LCK06-J: Uses the static historyLock to protect the static searchHistory list.
      * FIO02-J & EXP00-J: Detect file-related errors and handle the boolean return value from deleteIfExists
@@ -129,6 +191,9 @@ public class NoteSearcher {
     public static void clearHistory() {
         synchronized (historyLock) {
             searchHistory.clear();
+            synchronized (searchCountMap) {
+                searchCountMap.clear();
+            }
             try {
                 /* FIO02-J: Check the return value to determine if file was actually deleted */
                 boolean deleted = Files.deleteIfExists(HISTORY_FILE);
