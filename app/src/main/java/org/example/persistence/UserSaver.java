@@ -65,6 +65,14 @@ public class UserSaver {
      * @throws SQLException
      */
     private static void initTables() throws SQLException {
+        // Prep the note vault
+        try {
+            Path vault = Paths.get("data");
+            Files.createDirectories(vault);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        
         try (Connection conn = DriverManager.getConnection(DB_ADAPTER); Statement stat = conn.createStatement()){
             stat.executeUpdate("CREATE TABLE IF NOT EXISTS users (id STRING PRIMARY KEY, username STRING NOT NULL UNIQUE, passwordHash STRING NOT NULL)");
         }
